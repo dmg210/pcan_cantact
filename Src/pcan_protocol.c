@@ -34,8 +34,6 @@ static struct
         uint32_t quartz_freq;
     } can;
     uint8_t  sja1000_shadow[6];
-    uint8_t  sja1000_acceptance_code[2];
-    uint8_t  sja1000_acceptance_mask[2];
     uint8_t  sja1000_ic_mode;
     uint8_t  device_id;
     uint32_t device_serial;
@@ -93,37 +91,11 @@ void pcan_sja1000_write(uint8_t reg_addr, uint8_t value)
             case 15:
                 pcan_device.sja1000_shadow[5] = (value == 0xFF) ? 0x7F : value;
                 break;
-            case 16: /* Acceptance Code Register 0 */
-                pcan_device.sja1000_acceptance_code[0] = value;
-                pcan_can_set_sja1000_filter(
-                    pcan_device.sja1000_acceptance_code[0],
-                    pcan_device.sja1000_acceptance_code[1],
-                    pcan_device.sja1000_acceptance_mask[0],
-                    pcan_device.sja1000_acceptance_mask[1]);
+            case 16:
+                pcan_device.sja1000_shadow[0] = value;
                 break;
-            case 17: /* Acceptance Code Register 1 */
-                pcan_device.sja1000_acceptance_code[1] = value;
-                pcan_can_set_sja1000_filter(
-                    pcan_device.sja1000_acceptance_code[0],
-                    pcan_device.sja1000_acceptance_code[1],
-                    pcan_device.sja1000_acceptance_mask[0],
-                    pcan_device.sja1000_acceptance_mask[1]);
-                break;
-            case 20: /* Acceptance Mask Register 0 */
-                pcan_device.sja1000_acceptance_mask[0] = value;
-                pcan_can_set_sja1000_filter(
-                    pcan_device.sja1000_acceptance_code[0],
-                    pcan_device.sja1000_acceptance_code[1],
-                    pcan_device.sja1000_acceptance_mask[0],
-                    pcan_device.sja1000_acceptance_mask[1]);
-                break;
-            case 21: /* Acceptance Mask Register 1 */
-                pcan_device.sja1000_acceptance_mask[1] = value;
-                pcan_can_set_sja1000_filter(
-                    pcan_device.sja1000_acceptance_code[0],
-                    pcan_device.sja1000_acceptance_code[1],
-                    pcan_device.sja1000_acceptance_mask[0],
-                    pcan_device.sja1000_acceptance_mask[1]);
+            case 20:
+                pcan_device.sja1000_shadow[1] = value;
                 break;
             case 31:
                 if ((value & 0x80) == 0)
@@ -178,13 +150,9 @@ uint8_t pcan_sja1000_read(uint8_t reg_addr)
             case 15:
                 return pcan_device.sja1000_shadow[5];
             case 16:
-                return pcan_device.sja1000_acceptance_code[0];
-            case 17:
-                return pcan_device.sja1000_acceptance_code[1];
+                return pcan_device.sja1000_shadow[0];
             case 20:
-                return pcan_device.sja1000_acceptance_mask[0];
-            case 21:
-                return pcan_device.sja1000_acceptance_mask[1];
+                return pcan_device.sja1000_shadow[1];
             case 31:
                 return 0x80; /* PeliCAN mode */
             default:
