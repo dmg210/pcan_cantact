@@ -5,7 +5,7 @@
 #include <stm32f0xx_hal.h>
 #include <string.h>
 
-#define CAN_TX_FIFO_SIZE (100)
+#define CAN_TX_FIFO_SIZE (96)
 static CAN_HandleTypeDef g_hcan = { .Instance = CAN };
 #define INTERNAL_CAN_IT_FLAGS                                                                                                                                          \
     (CAN_IT_TX_MAILBOX_EMPTY | CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_RX_FIFO1_MSG_PENDING | CAN_IT_BUSOFF | CAN_IT_ERROR_WARNING | CAN_IT_ERROR_PASSIVE | CAN_IT_BUSOFF \
@@ -28,10 +28,59 @@ static struct
     void (*can_err_cb)(uint8_t err, uint8_t rx_err, uint8_t tx_err);
 } can_dev = { 0 };
 
-void pcan_can_init(void)
+/* Cached filter settings are re-applied after HAL_CAN_Init(), which resets
+ * the bxCAN peripheral configuration. SJA1000 AMR bits use inverse masks.
+ */
+static uint32_t sja_filter_id;
+static uint32_t sja_filter_mask;
+static uint8_t sja_filter_rtr_id;
+static uint8_t sja_filter_rtr_mask;
+static uint8_t sja_filter_standard_only;
+
+static void pcan_can_configure_filter(uint32_t id, uint32_t mask, uint8_t rtr_id, uint8_t rtr_mask,
+                                      uint8_t filter_standard_only)
 {
     CAN_FilterTypeDef filter = { 0 };
 
+    sja_filter_id = id;
+    sja_filter_mask = mask;
+    sja_filter_rtr_id = rtr_id;
+    sja_filter_rtr_mask = rtr_mask;
+    sja_filter_standard_only = filter_standard_only;
+
+    /* In bxCAN 32-bit mask mode, standard ID bits occupy FilterIdHigh[15:5]. */
+    filter.FilterIdHigh = (uint16_t)((id & 0x7FFu) << 5);
+    filter.FilterMaskIdHigh = (uint16_t)((mask & 0x7FFu) << 5);
+    filter.FilterIdLow = (uint16_t)((rtr_id ? 1u : 0u) << 1);
+    filter.FilterMaskIdLow = (uint16_t)((rtr_mask ? 1u : 0u) << 1);
+
+    /* A set IDE mask bit makes this a standard-frame-only filter. */
+    if (filter_standard_only)
+        filter.FilterMaskIdLow |= (1u << 2);
+
+    filter.FilterMode = CAN_FILTERMODE_IDMASK;
+    filter.FilterScale = CAN_FILTERSCALE_32BIT;
+    filter.FilterFIFOAssignment = CAN_FILTER_FIFO0;
+    filter.FilterActivation = ENABLE;
+    filter.FilterBank = 0;
+    filter.SlaveStartFilterBank = 0;
+
+    if (HAL_CAN_ConfigFilter(&g_hcan, &filter) != HAL_OK)
+        assert(0);
+}
+
+void pcan_can_set_sja1000_filter(uint8_t acr0, uint8_t acr1, uint8_t amr0, uint8_t amr1)
+{
+    uint32_t id = ((uint32_t)acr0 << 3) | ((uint32_t)acr1 >> 5);
+    uint32_t mask = ((uint32_t)(uint8_t)~amr0 << 3) | ((uint32_t)((uint8_t)~amr1 & 0xE0u) >> 5);
+    uint8_t rtr_mask = (uint8_t)((amr1 & 0x10u) == 0u);
+    uint8_t rtr_id = (uint8_t)((acr1 & 0x10u) != 0u);
+
+    pcan_can_configure_filter(id, mask, rtr_id, rtr_mask, 1);
+}
+
+void pcan_can_init(void)
+{
     __HAL_RCC_CAN1_CLK_ENABLE();
 
     PIN_ENABLE_CLOCK(CAN_RX);
@@ -60,17 +109,8 @@ void pcan_can_init(void)
         assert(0);
     }
 
-    filter.FilterMode           = CAN_FILTERMODE_IDMASK;
-    filter.FilterScale          = CAN_FILTERSCALE_32BIT;
-    filter.FilterFIFOAssignment = CAN_FILTER_FIFO0;
-    filter.FilterActivation     = ENABLE;
-    filter.FilterBank           = 0;
-    filter.SlaveStartFilterBank = 0;
-
-    if (HAL_CAN_ConfigFilter(&g_hcan, &filter) != HAL_OK)
-    {
-        assert(0);
-    }
+    /* Initially accept all frames, as the original firmware did. */
+    pcan_can_configure_filter(0, 0, 0, 0, 0);
 
     if (HAL_CAN_ActivateNotification(&g_hcan, INTERNAL_CAN_IT_FLAGS) != HAL_OK)
     {
@@ -103,6 +143,10 @@ void pcan_can_set_bitrate(uint16_t brp, uint8_t tseg1, uint8_t tseg2, uint8_t sj
     {
         assert(0);
     }
+
+    /* HAL_CAN_Init reinitializes the peripheral, so restore the filter. */
+    pcan_can_configure_filter(sja_filter_id, sja_filter_mask, sja_filter_rtr_id,
+                              sja_filter_rtr_mask, sja_filter_standard_only);
 }
 
 void pcan_can_install_rx_callback(void (*cb)(can_message_t *))
@@ -186,6 +230,8 @@ void pcan_can_set_silent(uint8_t silent_mode)
     {
         assert(0);
     }
+    pcan_can_configure_filter(sja_filter_id, sja_filter_mask, sja_filter_rtr_id,
+                              sja_filter_rtr_mask, sja_filter_standard_only);
 }
 
 void pcan_can_set_loopback(uint8_t loopback)
@@ -195,6 +241,8 @@ void pcan_can_set_loopback(uint8_t loopback)
     {
         assert(0);
     }
+    pcan_can_configure_filter(sja_filter_id, sja_filter_mask, sja_filter_rtr_id,
+                              sja_filter_rtr_mask, sja_filter_standard_only);
 }
 
 void pcan_can_set_bus_active(uint16_t mode)

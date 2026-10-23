@@ -30,3 +30,10 @@ void pcan_can_install_error_callback(void (*cb)(uint8_t, uint8_t, uint8_t));
 void pcan_can_set_bus_active(uint16_t mode);
 void pcan_can_set_silent(uint8_t silent_mode);
 void pcan_can_set_loopback(uint8_t loopback);
+
+/* Apply the SJA1000 PeliCAN/BasicCAN standard-ID acceptance registers.
+ * AMR bits set to 1 mean "don't care", matching SJA1000 semantics.
+ * This bxCAN implementation filters standard 11-bit IDs and RTR; it does
+ * not implement the different SJA1000 extended-ID acceptance layout.
+ */
+void pcan_can_set_sja1000_filter(uint8_t acr0, uint8_t acr1, uint8_t amr0, uint8_t amr1);
